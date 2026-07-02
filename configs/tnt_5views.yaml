@@ -1,0 +1,13 @@
+multi_view_min_dis: 0.01
+multi_view_max_angle: 90
+multi_view_max_dis: 8.0
+depth_conf_thrsh: 1.2
+depth_conf_thrsh_2: 0
+depth_conf_keep_ratio: 0.3
+depth_conf_keep_ratio_2: 0.45
+loss_ramp_iters: 700
+robust_depth_align: true
+depth_align_irls_iters: 3
+depth_align_min_anchors: 4
+depth_edge_keep_ratio: 0.8
+pseudo_depth_ema: 0.7

@@ -1,0 +1,42 @@
+[project]
+name = "vggs"
+version = "0.1.0"
+description = "VGGT-guided Gaussian Splatting for sparse-view surface reconstruction"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+dependencies = [
+    "open3d>=0.19",
+    "plyfile>=1.0",
+    "opencv-python>=4.9",
+    "lpips>=0.1.4",
+    "trimesh>=4.4",
+]
+
+[project.optional-dependencies]
+dev = []
+tuning = [
+    "optuna>=4.0",
+]
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["render", "train", "train_optuna"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "arguments*",
+    "gaussian_renderer*",
+    "lpipsPyTorch*",
+    "scene*",
+    "scripts*",
+    "utils*",
+]
+namespaces = true
+
+[tool.uv]
+package = true
