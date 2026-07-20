@@ -3,13 +3,11 @@ name = "vggs"
 version = "0.1.0"
 description = "VGGT-guided Gaussian Splatting for sparse-view surface reconstruction"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.10,<3.13"
 license = "MIT"
 dependencies = [
-    "open3d>=0.19",
     "plyfile>=1.0",
     "opencv-python>=4.9",
-    "lpips>=0.1.4",
     "trimesh>=4.4",
 ]
 
@@ -17,6 +15,12 @@ dependencies = [
 dev = []
 tuning = [
     "optuna>=4.0",
+]
+eval = [
+    "open3d>=0.19; platform_machine == 'x86_64'",
+]
+metrics = [
+    "lpips>=0.1.4",
 ]
 
 [build-system]
@@ -40,3 +44,4 @@ namespaces = true
 
 [tool.uv]
 package = true
+environments = ["sys_platform == 'linux' and platform_machine == 'aarch64'"]

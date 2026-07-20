@@ -1,0 +1,56 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+*.so
+
+# VGGS datasets and experiment outputs
+data/
+exp/
+output/
+outputs/
+runs/
+wandb/
+*.ckpt
+*.pth
+*.pt
+
+# Generated Gaussian Splatting outputs
+point_cloud/
+app_model/
+cfg_args
+cameras.json
+multi_view.json
+input.ply
+
+# Local CUDA / Jetson installer artifacts
+cuda-keyring_*.deb
+get-pip.py
+libcusparse_lt-linux-*/
+libcusparse_lt-linux-*.tar.xz
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

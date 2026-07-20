@@ -32,8 +32,6 @@ from scene.app_model import AppModel
 from scene.cameras import Camera
 
 import torch.nn.functional as F
-# xp debug
-import open3d as o3d
 from utils.point_utils import depths_to_points_color
 
 try:

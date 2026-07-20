@@ -31,6 +31,17 @@ PARAM_NAMES = [
 ]
 
 
+def ensure_output_paths(args):
+    Path(args.model_root).mkdir(parents=True, exist_ok=True)
+    if args.report_dir:
+        Path(args.report_dir).mkdir(parents=True, exist_ok=True)
+
+    if args.storage and args.storage.startswith("sqlite:///"):
+        db_path = args.storage.removeprefix("sqlite:///")
+        if db_path and db_path != ":memory:":
+            Path(db_path).expanduser().parent.mkdir(parents=True, exist_ok=True)
+
+
 def parse_psnr(output, preferred_split):
     matches = PSNR_RE.findall(output)
     if not matches:
@@ -416,6 +427,8 @@ def main():
 
     if optuna is None:
         raise SystemExit("Optuna is not installed. Run `uv sync --extra tuning` first.") from OPTUNA_IMPORT_ERROR
+
+    ensure_output_paths(args)
 
     study = optuna.create_study(
         direction="maximize",

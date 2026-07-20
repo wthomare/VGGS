@@ -47,6 +47,13 @@ training-stability changes intended to improve sparse-view reconstruction.
   through `--tsdf_edge_keep_ratio`.
 
 ## Installation
+
+This fork supports the original desktop/Linux workflow and a Jetson AGX Orin
+workflow. The Jetson path is more constrained because PyTorch, CUDA extensions,
+PyTorch3D, and Open3D must match JetPack/aarch64.
+
+### Standard Linux / x86_64
+
 ```shell
 # SSH
 git clone https://github.com/AllenXiangX/VGGS.git
@@ -54,25 +61,111 @@ cd VGGS
 
 uv venv --python 3.12
 source .venv/bin/activate
+uv sync --extra tuning --extra eval --extra metrics
 
-uv sync
+# Install a PyTorch stack matching your CUDA driver. Example for CUDA 11.8:
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
-# Optional: install hyperparameter tuning helpers.
-uv sync --extra tuning
-
-# Install the PyTorch stack separately so it can match your CUDA/JetPack version.
-uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 # replace with your CUDA-compatible wheel index
-
-# Install PyTorch3D separately. On Python 3.12 and Jetson/aarch64, expect to
-# build it from source against the exact PyTorch/CUDA stack you installed.
+# Install PyTorch3D and local CUDA extensions.
 uv pip install pytorch3d
-
-uv pip install submodules/diff-plane-rasterization
-uv pip install submodules/simple-knn
+export TORCH_CUDA_ARCH_LIST="native"
+uv pip install -v --no-build-isolation submodules/diff-plane-rasterization
+uv pip install -v --no-build-isolation submodules/simple-knn
 ```
 
-For Jetson AGX Orin / JetPack, install the NVIDIA-provided PyTorch build first
-and see [Python 3.12 / Jetson notes](docs/python312-jetson.md).
+### Jetson AGX Orin / JetPack
+
+Use NVIDIA Jetson PyTorch wheels or an NVIDIA Jetson container. Do not install
+PyTorch from `https://download.pytorch.org/whl/cu*` on Jetson: those wheels are
+for desktop/server Linux, not aarch64 Jetson.
+
+Start from the repo root:
+
+```shell
+cd ~/Desktop/VGGS
+uv venv --python 3.12
+source .venv/bin/activate
+
+# Keep Open3D and PyPI lpips out of the base Jetson environment.
+# open3d has no PyPI aarch64 wheel, and lpips can pull a generic PyTorch stack.
+uv sync --extra tuning
+```
+
+Install the NVIDIA-provided PyTorch stack for your JetPack/CUDA version. Example
+shape, replacing the URL with the exact wheel for your JetPack from NVIDIA:
+
+```shell
+uv pip uninstall torch torchvision torchaudio triton
+export TORCH_INSTALL="https://developer.download.nvidia.com/compute/redist/jp/.../torch-...-linux_aarch64.whl"
+uv pip install --no-cache-dir "$TORCH_INSTALL"
+```
+
+Verify before building anything:
+
+```shell
+python - <<'PY'
+import torch
+print(torch.__version__)
+print(torch.version.cuda)
+print(torch.cuda.is_available())
+PY
+```
+
+For Jetson AGX Orin, the GPU compute capability is 8.7. Export the build
+environment before compiling extensions:
+
+```shell
+export CUDA_HOME=/usr/local/cuda-12.6
+export PATH="$CUDA_HOME/bin:$PATH"
+export LD_LIBRARY_PATH="$CUDA_HOME/lib64:$LD_LIBRARY_PATH"
+export TORCH_CUDA_ARCH_LIST="8.7"
+export MAX_JOBS=2
+```
+
+Install PyTorch3D. On Jetson/aarch64 this often needs a source build:
+
+```shell
+uv pip install "git+https://github.com/facebookresearch/pytorch3d.git" --no-build-isolation
+```
+
+Build the local CUDA extensions against the already-installed Jetson PyTorch:
+
+```shell
+uv pip install -v --no-build-isolation submodules/diff-plane-rasterization
+uv pip install -v --no-build-isolation submodules/simple-knn
+```
+
+Important details for Jetson:
+
+- Always use `--no-build-isolation` for the CUDA submodules. Otherwise the build
+  environment cannot see your installed Jetson PyTorch and fails with
+  `ModuleNotFoundError: No module named 'torch'`.
+- `simple-knn` needs `#include <cfloat>` in `submodules/simple-knn/simple_knn.cu`
+  for CUDA 12.6/Python 3.12 builds, otherwise `FLT_MAX` is undefined. This fork
+  includes that patch.
+- `open3d` is optional in `pyproject.toml` under the `eval` extra and is only
+  installed automatically on x86_64. It is needed for `render.py` and DTU/TNT
+  mesh evaluation. On Jetson, either build Open3D manually, use a compatible
+  container, or run rendering/evaluation on an x86_64 machine.
+- After manually installing Jetson PyTorch, avoid plain `uv sync` if it would
+  remove manual packages. Use `uv sync --extra tuning --inexact` when needed.
+- If Torch warns that the installed build does not support Orin CC 8.7, replace
+  it with a JetPack-compatible NVIDIA build before training.
+
+Quick import checks:
+
+```shell
+python - <<'PY'
+import torch
+import simple_knn._C
+import diff_plane_rasterization
+import pytorch3d
+print("torch", torch.__version__, torch.version.cuda, torch.cuda.is_available())
+print("VGGS CUDA deps OK")
+PY
+```
+
+For more Jetson notes, see [docs/python312-jetson.md](docs/python312-jetson.md).
 
 ## Dataset
 Please download the preprocessed [DTU dataset and TNT dataset](https://drive.google.com/drive/folders/1x62cuv46E-elH-zeIQrj9NFMlpw1Vf04?usp=drive_link). The DTU ground truth (dtu_eval) can be downloaded from [DTU dataset](https://roboimagedata.compute.dtu.dk/?page_id=36)
