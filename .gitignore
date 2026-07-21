@@ -23,6 +23,8 @@ exp/
 output/
 outputs/
 runs/
+tools/TanksAndTemples/
+tools/tanksandtemples/
 wandb/
 *.ckpt
 *.pth

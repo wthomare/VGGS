@@ -24,10 +24,14 @@ from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import GaussianModel
 import numpy as np
 import cv2
-import open3d as o3d
 from scene.app_model import AppModel
 import copy
 from collections import deque
+
+try:
+    import open3d as o3d
+except ImportError:
+    o3d = None
 
 def image_edge_mask(image, keep_ratio=0.0):
     if keep_ratio <= 0:
@@ -161,7 +165,8 @@ def render_set(model_path, name, iteration, views, scene, gaussians, pipeline, b
                 pose)
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool,
-                 max_depth : float, voxel_size : float, num_cluster: int, use_depth_filter : bool, tsdf_edge_keep_ratio : float):
+                 max_depth : float, voxel_size : float, num_cluster: int, use_depth_filter : bool, tsdf_edge_keep_ratio : float,
+                 skip_mesh : bool):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree)
         scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
@@ -172,26 +177,34 @@ def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParam
 
         bg_color = [1,1,1] if dataset.white_background else [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-        volume = o3d.pipelines.integration.ScalableTSDFVolume(
-            voxel_length=voxel_size,
-            sdf_trunc=4.0*voxel_size,
-            color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
+        volume = None
+        if not skip_mesh:
+            if o3d is None:
+                raise RuntimeError(
+                    "Open3D is required for TSDF mesh extraction. Install Open3D or rerun with --skip_mesh "
+                    "to generate rendered images/depth/normal maps only."
+                )
+            volume = o3d.pipelines.integration.ScalableTSDFVolume(
+                voxel_length=voxel_size,
+                sdf_trunc=4.0*voxel_size,
+                color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
 
         if not skip_train:
             render_set(dataset.model_path, "train", scene.loaded_iter, scene.getTrainCameras(), scene, gaussians, pipeline, background, 
                        max_depth=max_depth, volume=volume, use_depth_filter=use_depth_filter, tsdf_edge_keep_ratio=tsdf_edge_keep_ratio)
-            print(f"extract_triangle_mesh")
-            mesh = volume.extract_triangle_mesh()
+            if volume is not None:
+                print(f"extract_triangle_mesh")
+                mesh = volume.extract_triangle_mesh()
 
-            path = os.path.join(dataset.model_path, "mesh")
-            os.makedirs(path, exist_ok=True)
-            
-            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion.ply"), mesh, 
-                                       write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
-            
-            mesh = post_process_mesh(mesh, num_cluster)
-            o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_post.ply"), mesh, 
-                                       write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
+                path = os.path.join(dataset.model_path, "mesh")
+                os.makedirs(path, exist_ok=True)
+                
+                o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion.ply"), mesh, 
+                                           write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
+                
+                mesh = post_process_mesh(mesh, num_cluster)
+                o3d.io.write_triangle_mesh(os.path.join(path, "tsdf_fusion_post.ply"), mesh, 
+                                           write_triangle_uvs=True, write_vertex_colors=True, write_vertex_normals=True)
 
         if not skip_test:
             render_set(dataset.model_path, "test", scene.loaded_iter, scene.getTestCameras(), scene, gaussians, pipeline, background)
@@ -211,6 +224,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_cluster", default=1, type=int)
     parser.add_argument("--use_depth_filter", action="store_true")
     parser.add_argument("--tsdf_edge_keep_ratio", default=0.0, type=float)
+    parser.add_argument("--skip_mesh", action="store_true")
     parser.add_argument("--config", type=str, default="configs/dtu.yaml")
 
     args = get_combined_args(parser)
@@ -224,4 +238,4 @@ if __name__ == "__main__":
         cfg = yaml.safe_load(f)
         opt.__dict__.update(cfg)
 
-    render_sets(opt, args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.max_depth, args.voxel_size, args.num_cluster, args.use_depth_filter, args.tsdf_edge_keep_ratio)
+    render_sets(opt, args.iteration, pipeline.extract(args), args.skip_train, args.skip_test, args.max_depth, args.voxel_size, args.num_cluster, args.use_depth_filter, args.tsdf_edge_keep_ratio, args.skip_mesh)

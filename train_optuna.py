@@ -5,6 +5,7 @@ import json
 import re
 import shlex
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -409,7 +410,7 @@ def main():
     parser.add_argument("--source", "-s", required=True, help="Scene source path passed to train.py.")
     parser.add_argument("--model-root", "-m", required=True, help="Output directory root for trial runs.")
     parser.add_argument("--config", default="configs/dtu.yaml")
-    parser.add_argument("--python", default="python")
+    parser.add_argument("--python", default=sys.executable, help="Python executable used to launch train.py. Defaults to the current interpreter.")
     parser.add_argument("--name", default="optuna")
     parser.add_argument("--storage", default=None, help="Optional Optuna storage URL, e.g. sqlite:///optuna.db.")
     parser.add_argument("--study-name", default="vggs-quality")
@@ -420,7 +421,7 @@ def main():
     parser.add_argument("--seed", type=int, default=2025)
     parser.add_argument("--test-iteration", type=int, default=3000)
     parser.add_argument("--metric-split", default="test", choices=["test", "train"])
-    parser.add_argument("--common-args", default="--quiet -r2 --ncc_scale 0.5")
+    parser.add_argument("--common-args", default="-r2 --ncc_scale 0.5")
     parser.add_argument("--report-dir", default=None, help="Directory for HTML/CSV/JSON benchmark report.")
     parser.add_argument("--no-report", action="store_true", help="Disable benchmark report generation.")
     args = parser.parse_args()

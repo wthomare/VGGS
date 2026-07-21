@@ -152,6 +152,127 @@ Important details for Jetson:
 - If Torch warns that the installed build does not support Orin CC 8.7, replace
   it with a JetPack-compatible NVIDIA build before training.
 
+#### Open3D on Jetson
+
+Open3D is only needed for TSDF mesh extraction and DTU/TNT mesh evaluation. The
+Gaussian Splatting checkpoint itself can still be rendered to images without
+Open3D by passing `--skip_mesh` to `render.py`.
+
+First try the prebuilt wheel in the active VGGS environment:
+
+```shell
+cd ~/Desktop/VGGS
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install open3d
+python - <<'PY'
+import open3d as o3d
+print(o3d.__version__)
+PY
+```
+
+If no compatible aarch64 wheel is available, build a minimal Open3D from source.
+This build disables GUI, WebRTC, CUDA, ML ops, tests, and examples because VGGS
+only needs Open3D's CPU TSDF integration and mesh I/O on Jetson.
+
+```shell
+sudo apt update
+sudo apt install -y \
+  git build-essential pkg-config ccache \
+  libgl1-mesa-dev libglu1-mesa-dev \
+  libx11-dev libxi-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+  libjpeg-dev libpng-dev libtiff-dev \
+  libeigen3-dev
+
+cd ~/Desktop/VGGS
+source .venv/bin/activate
+python -m pip install -U pip wheel setuptools cmake ninja
+```
+
+Open3D can require a lot of RAM while compiling. Add temporary swap if the build
+is killed or the Jetson becomes unstable:
+
+```shell
+sudo fallocate -l 8G /swapfile-open3d
+sudo chmod 600 /swapfile-open3d
+sudo mkswap /swapfile-open3d
+sudo swapon /swapfile-open3d
+```
+
+Clone and configure Open3D:
+
+```shell
+cd ~
+git clone --recursive https://github.com/isl-org/Open3D.git
+cd Open3D
+git checkout v0.19.0
+git submodule update --init --recursive
+./util/install_deps_ubuntu.sh
+
+mkdir -p build
+cd build
+cmake .. \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_PYTHON_MODULE=ON \
+  -DBUILD_CUDA_MODULE=OFF \
+  -DBUILD_GUI=OFF \
+  -DBUILD_WEBRTC=OFF \
+  -DBUILD_EXAMPLES=OFF \
+  -DBUILD_UNIT_TESTS=OFF \
+  -DBUILD_BENCHMARKS=OFF \
+  -DBUILD_PYTORCH_OPS=OFF \
+  -DBUILD_TENSORFLOW_OPS=OFF \
+  -DPython3_EXECUTABLE="$HOME/Desktop/VGGS/.venv/bin/python"
+```
+
+Build with a low job count on AGX Orin:
+
+```shell
+make -j2
+make install-pip-package -j2
+```
+
+Verify the Python module from the VGGS environment:
+
+```shell
+cd ~/Desktop/VGGS
+source .venv/bin/activate
+python - <<'PY'
+import open3d as o3d
+print("Open3D:", o3d.__version__)
+mesh = o3d.geometry.TriangleMesh.create_box()
+print(mesh)
+PY
+```
+
+You can now extract a mesh with `render.py` by omitting `--skip_mesh`:
+
+```shell
+python render.py \
+  -m exp/optuna/dtu_scan24/optuna_trial_0020 \
+  --iteration 3000 \
+  --config configs/dtu.yaml \
+  --skip_test
+```
+
+Expected mesh outputs:
+
+```shell
+exp/optuna/dtu_scan24/optuna_trial_0020/mesh/tsdf_fusion.ply
+exp/optuna/dtu_scan24/optuna_trial_0020/mesh/tsdf_fusion_post.ply
+```
+
+If Open3D is not installed yet, render images/depth/normals only:
+
+```shell
+python render.py \
+  -m exp/optuna/dtu_scan24/optuna_trial_0020 \
+  --iteration 3000 \
+  --config configs/dtu.yaml \
+  --skip_test \
+  --skip_mesh
+```
+
 Quick import checks:
 
 ```shell
@@ -262,6 +383,129 @@ At the end of the study, `train_optuna.py` writes a benchmark report containing:
   trials, a score timeline, and every trial's parameters/performance.
 - `trials.csv`: flat table for spreadsheet analysis.
 - `trials.json`: machine-readable study export.
+
+### Tanks and Temples Optuna tuning
+
+The preprocessed Tanks and Temples 10-view scenes are expected under:
+
+```shell
+data/tnt_dataset/tnt_10views/
+├── Barn
+├── Caterpillar
+├── Ignatius
+└── Truck
+```
+
+Each scene must contain at least:
+
+```shell
+images/
+depth_vggt/
+normal/
+sparse/
+<Scene>_COLMAP_SfM.log
+<Scene>_trans.txt
+<Scene>.json
+<Scene>.ply
+```
+
+`depth_vggt` and `normal` are VGGS/VGGT-specific priors; the raw official Tanks
+and Temples download does not provide them. Prefer the preprocessed VGGS dataset
+when available. If starting from the official Tanks and Temples site, generate
+COLMAP data first with `scripts/preprocess/convert_tnt.py`, then generate the
+VGGT depth/confidence and normal `.npy` files before training.
+
+Run Optuna on one TNT scene:
+
+```shell
+python train_optuna.py \
+  -s data/tnt_dataset/tnt_10views/Ignatius \
+  -m exp/optuna/tnt_10views/Ignatius \
+  --config configs/tnt_10views.yaml \
+  --n-trials 20 \
+  --test-iteration 3000 \
+  --metric-split train \
+  --sampler tpe \
+  --pruner none \
+  --storage sqlite:///exp/optuna/tnt_10views/Ignatius/ignatius_optuna.db \
+  --study-name vggs-tnt-ignatius \
+  --report-dir exp/optuna/tnt_10views/Ignatius/report \
+  --common-args "-r2 --ncc_scale 0.5 --data_device cuda --densify_abs_grad_threshold 0.00015 --opacity_cull_threshold 0.05 --exposure_compensation"
+```
+
+Run the helper on all preprocessed TNT 10-view scenes:
+
+```shell
+python scripts/run_tnt_optuna.py \
+  --data-root data/tnt_dataset/tnt_10views \
+  --output-root exp/optuna/tnt_10views \
+  --n-trials 20
+```
+
+Use `--dry-run` to print the commands without launching training:
+
+```shell
+python scripts/run_tnt_optuna.py --scenes Ignatius --n-trials 1 --dry-run
+```
+
+TNT scenes in this repo do not include a `split.json` by default, so use
+`--metric-split train` unless you add your own train/test split file. Also avoid
+passing `--quiet` through `--common-args`, because Optuna parses the PSNR from
+`train.py` stdout.
+
+### Official Tanks and Temples Submission
+
+The official benchmark requires a complete `intermediate`, `advanced`, or `both`
+submission set. A single scene is not accepted. The upload folder must contain
+one `<Scene>.ply` point cloud and one `<Scene>.log` camera trajectory file per
+scene, plus the official uploader and your credentials file.
+
+The helper below prepares the official Intermediate workflow. It downloads the
+official image sets through the Tanks and Temples downloader, runs COLMAP, writes
+TNT `.log` files, launches VGGS/Optuna once VGGT priors are available, and
+assembles the upload folder from the best trials.
+
+```shell
+python scripts/tnt_official_pipeline.py   --group intermediate   --download   --prepare-colmap
+```
+
+Before training, each scene must contain the VGGS priors:
+
+```shell
+data/tnt_official/intermediate/<Scene>/depth_vggt/*_pred.npy
+data/tnt_official/intermediate/<Scene>/depth_vggt/*_conf.npy
+data/tnt_official/intermediate/<Scene>/normal/*_normal.npy
+```
+
+Those files are not provided by the official Tanks and Temples image sets and
+must be generated by a VGGT/depth-normal preprocessing step before VGGS training.
+Once they exist, run:
+
+```shell
+python scripts/tnt_official_pipeline.py   --group intermediate   --train   --n-trials 20
+```
+
+After all Intermediate scenes have completed, assemble the upload folder:
+
+```shell
+python scripts/prepare_tnt_submission.py   --group intermediate   --data-root data/tnt_official   --output-root exp/tnt_official   --submission-dir submission_tnt/intermediate
+```
+
+Copy the official uploader and your Tanks and Temples credentials file into the
+submission directory, then upload from that directory:
+
+```shell
+cp tools/tanksandtemples/upload_t2_results.py submission_tnt/intermediate/
+cd submission_tnt/intermediate
+python upload_t2_results.py --group intermediate
+```
+
+Use `--dry-run` to inspect the full pipeline without downloading, training, or
+writing outputs:
+
+```shell
+python scripts/tnt_official_pipeline.py   --group intermediate   --download   --prepare-colmap   --train   --dry-run
+```
 
 ## [Cite this work]
 
